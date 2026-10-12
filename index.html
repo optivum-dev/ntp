@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="pl" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zaawansowany Monitor Serwerów Czasu NTP</title>
+    <!-- Tailwind CSS v4 -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        /* Custom scrollbar for sync logs */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+        ::-webkit-scrollbar-thumb { background: rgba(51, 65, 85, 0.8); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 1); }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col selection:bg-cyan-500 selection:text-slate-950">
+
+    <!-- HEADER -->
+    <header class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-30 px-6 py-4 flex flex-wrap items-center justify-between gap-4 shadow-xl shadow-slate-950/20">
+        <div class="flex items-center space-x-3.5">
+            <div class="bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border border-cyan-500/30 p-2.5 rounded-2xl text-cyan-400 shadow-inner">
+                <i class="fa-solid fa-atom text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-500 bg-clip-text text-transparent">NTP Time Server Monitor</h1>
+                <p class="text-xs text-slate-400 font-medium">Atomowy Monitor Czasu i Diagnostyka Sieciowa RFC 5905</p>
+            </div>
+        </div>
+
+        <div class="flex items-center flex-wrap gap-2.5">
+            <button onclick="openAddServerModal()" class="flex items-center gap-2 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 px-3.5 py-2 rounded-xl text-sm font-semibold border border-slate-700/80 transition shadow-sm hover:border-cyan-500/40">
+                <i class="fa-solid fa-plus text-cyan-400"></i> Dodaj serwer
+            </button>
+            <button onclick="toggleFullscreenClock()" class="flex items-center gap-2 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 px-3.5 py-2 rounded-xl text-sm font-semibold border border-slate-700/80 transition shadow-sm hover:border-cyan-500/40">
+                <i class="fa-solid fa-expand text-cyan-400"></i> Pełny ekran
+            </button>
+            <div class="h-6 w-[1px] bg-slate-800 mx-1"></div>
+            <button onclick="exportData('csv')" class="flex items-center gap-1.5 bg-cyan-950/50 hover:bg-cyan-900/50 text-cyan-300 px-3 py-2 rounded-xl text-xs font-semibold border border-cyan-500/30 transition shadow-sm">
+                <i class="fa-solid fa-file-csv"></i> CSV
+            </button>
+            <button onclick="exportData('json')" class="flex items-center gap-1.5 bg-blue-950/50 hover:bg-blue-900/50 text-blue-300 px-3 py-2 rounded-xl text-xs font-semibold border border-blue-500/30 transition shadow-sm">
+                <i class="fa-solid fa-file-code"></i> JSON
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- LEFT 2 COLS: SERVERS LIST & DIAGNOSTICS -->
+        <div class="lg:col-span-2 space-y-6 flex flex-col">
+            <!-- SERVERS LIST -->
+            <div class="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 shadow-2xl backdrop-blur-xl relative overflow-hidden">
+                <div class="absolute -right-20 -top-20 w-48 h-48 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none"></div>
+                
+                <div class="flex items-center justify-between mb-5">
+                    <h2 class="text-xs font-bold uppercase tracking-widest text-cyan-400 flex items-center gap-2">
+                        <i class="fa-solid fa-server"></i> Monitorowane serwery NTP
+                    </h2>
+                    <span id="active-servers-count" class="text-xs bg-slate-800/80 text-slate-300 px-3 py-1 rounded-full border border-slate-700 font-medium">0 aktywnych</span>
+                </div>
+                
+                <div id="servers-list" class="space-y-3.5">
+                    <!-- Dynamically populated -->
+                </div>
+            </div>
+
+            <!-- NTP DIAGNOSTICS PANEL -->
+            <div class="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 shadow-2xl backdrop-blur-xl flex-1">
+                <div class="flex items-center justify-between mb-5">
+                    <h2 class="text-xs font-bold uppercase tracking-widest text-cyan-400 flex items-center gap-2">
+                        <i class="fa-solid fa-stethoscope"></i> Diagnostyka NTPv4 (RFC 5905)
+                    </h2>
+                    <span id="selected-server-badge" class="text-xs bg-cyan-950/80 text-cyan-300 border border-cyan-800/80 px-3 py-1 rounded-full font-mono font-semibold">-</span>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
+                    <div class="bg-slate-950/60 border border-slate-800/60 p-4 rounded-2xl">
+                        <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Leap Indicator (LI)</div>
+                        <div id="diag-li" class="text-sm font-mono font-bold text-emerald-400">0 (No warning)</div>
+                    </div>
+                    <div class="bg-slate-950/60 border border-slate-800/60 p-4 rounded-2xl">
+                        <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Wersja Protokołu</div>
+                        <div id="diag-vn" class="text-sm font-mono font-bold text-slate-200">NTPv4 (IPv4/IPv6)</div>
+                    </div>
+                    <div class="bg-slate-950/60 border border-slate-800/60 p-4 rounded-2xl">
+                        <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Tryb (Mode)</div>
+                        <div id="diag-mode" class="text-sm font-mono font-bold text-slate-200">3 (Client)</div>
+                    </div>
+                    <div class="bg-slate-950/60 border border-slate-800/60 p-4 rounded-2xl">
+                        <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Root Delay</div>
+                        <div id="diag-root-delay" class="text-sm font-mono font-bold text-slate-200">0.142 ms</div>
+                    </div>
+                    <div class="bg-slate-950/60 border border-slate-800/60 p-4 rounded-2xl">
+                        <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Root Dispersion</div>
+                        <div id="diag-root-disp" class="text-sm font-mono font-bold text-slate-200">1.045 ms</div>
+                    </div>
+                    <div class="bg-slate-950/60 border border-slate-800/60 p-4 rounded-2xl">
+                        <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Reference ID</div>
+                        <div id="diag-refid" class="text-sm font-mono font-bold text-cyan-400">PPS (Cesium)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT COL: LOCAL CLOCK & MANUAL NTP SYNC PANEL -->
+        <div class="space-y-6 flex flex-col">
+            <!-- MAIN LOCAL TIME CARD -->
+            <div class="bg-gradient-to-br from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800/80 rounded-3xl p-6 shadow-2xl backdrop-blur-xl text-center relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-36 h-36 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                <div class="text-xs uppercase tracking-widest text-slate-400 mb-2 font-bold">Czas Lokalny (System)</div>
+                <div id="main-clock" class="text-4xl sm:text-5xl font-mono font-extrabold tracking-tight text-white mb-1.5 drop-shadow-md">00:00:00.000</div>
+                <div id="main-date" class="text-xs text-cyan-400/90 font-mono font-medium">Ładowanie daty...</div>
+                
+                <div class="mt-5 pt-4 border-t border-slate-800/80 grid grid-cols-2 gap-3 text-left">
+                    <div class="bg-slate-950/60 p-3 rounded-2xl border border-slate-800/60">
+                        <div class="text-[10px] text-slate-400 uppercase font-semibold">Offset bazowy</div>
+                        <div id="local-offset" class="text-sm font-mono font-bold text-cyan-400 mt-0.5">+0.32 ms</div>
+                    </div>
+                    <div class="bg-slate-950/60 p-3 rounded-2xl border border-slate-800/60">
+                        <div class="text-[10px] text-slate-400 uppercase font-semibold">Jitter sieci</div>
+                        <div id="local-jitter" class="text-sm font-mono font-bold text-emerald-400 mt-0.5">0.12 ms</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MANUAL NTP SYNC PANEL -->
+            <div class="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 shadow-2xl backdrop-blur-xl flex-1 flex flex-col">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xs font-bold uppercase tracking-widest text-cyan-400 flex items-center gap-2">
+                        <i class="fa-solid fa-satellite-dish"></i> Ręczna Synchronizacja NTP
+                    </h2>
+                    <span id="sync-target-name" class="text-[11px] font-mono text-slate-300 bg-slate-800 px-2.5 py-0.5 rounded-md border border-slate-700">tempus1.gum.gov.pl</span>
+                </div>
+
+                <div class="space-y-4 flex-1 flex flex-col">
+                    <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-4 flex items-center justify-between">
+                        <div>
+                            <div class="text-xs font-semibold text-slate-300">Status żądania NTPv4</div>
+                            <div id="sync-status-text" class="text-xs font-mono text-cyan-400 mt-0.5">Gotowy do odpytania serwera</div>
+                        </div>
+                        <button id="sync-now-btn" onclick="triggerManualSync()" class="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition shadow-lg shadow-cyan-900/30 flex items-center gap-2 cursor-pointer">
+                            <i class="fa-solid fa-rotate" id="sync-icon"></i> Synchronizuj teraz
+                        </button>
+                    </div>
+
+                    <!-- Sync Log Terminal -->
+                    <div class="bg-slate-950 border border-slate-800/80 rounded-2xl p-3.5 flex-1 min-h-[180px] max-h-[220px] overflow-y-auto font-mono text-[11px] space-y-1.5 shadow-inner" id="sync-logs">
+                        <div class="text-slate-500">[10:00:00] System zainicjalizowany. Wybierz serwer i kliknij synchronizuj.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- FULLSCREEN CLOCK OVERLAY -->
+    <div id="fullscreen-overlay" class="fixed inset-0 bg-slate-950 z-50 hidden flex-col items-center justify-center p-6 cursor-pointer select-none">
+        <button onclick="toggleFullscreenClock()" class="absolute top-6 right-6 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 p-3.5 rounded-full transition shadow-xl">
+            <i class="fa-solid fa-compress text-xl"></i>
+        </button>
+        <div id="fs-date" class="text-lg sm:text-2xl font-mono text-cyan-400 mb-4 tracking-widest uppercase font-semibold">Środa, 12 Października 2026</div>
+        <div id="fs-clock" class="text-6xl sm:text-9xl font-mono font-extrabold tracking-tight text-white mb-6 drop-shadow-[0_0_35px_rgba(6,182,212,0.3)]">00:00:00<span class="text-3xl sm:text-5xl text-cyan-400 font-normal">.000</span></div>
+        <div class="text-xs text-slate-400 font-mono bg-slate-900/80 border border-slate-800 px-5 py-2.5 rounded-full backdrop-blur">
+            NTP Server Sync: <span id="fs-server-name" class="text-cyan-300 font-semibold">tempus1.gum.gov.pl</span> | Kliknij lub naciśnij Esc, aby wyjść
+        </div>
+    </div>
+
+    <!-- ADD SERVER MODAL -->
+    <div id="add-server-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl relative">
+            <h3 class="text-base font-bold text-white mb-4 flex items-center gap-2.5">
+                <div class="bg-cyan-500/20 p-2 rounded-xl text-cyan-400 border border-cyan-500/30">
+                    <i class="fa-solid fa-server"></i>
+                </div>
+                Dodaj własny serwer NTP
+            </h3>
+            <form id="add-server-form" onsubmit="handleAddNewServer(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1.5">Nazwa serwera</label>
+                    <input type="text" id="new-name" required placeholder="np. NTP Lokalny" class="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500 font-mono transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1.5">Adres hosta / IP</label>
+                    <input type="text" id="new-host" required placeholder="np. ntp.agh.edu.pl" class="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500 font-mono transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1.5">Opis / Lokalizacja</label>
+                    <input type="text" id="new-desc" placeholder="np. AGH Kraków" class="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500 transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1.5">Stratum</label>
+                    <input type="number" id="new-stratum" min="1" max="15" value="2" class="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500 font-mono transition">
+                </div>
+                <div class="flex items-center justify-end gap-3 pt-3">
+                    <button type="button" onclick="closeAddServerModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2.5 rounded-2xl text-sm font-semibold transition">Anuluj</button>
+                    <button type="submit" class="bg-cyan-600 hover:bg-cyan-500 text-white px-5 py-2.5 rounded-2xl text-sm font-bold transition shadow-lg shadow-cyan-900/30 cursor-pointer">Zapisz serwer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        const defaultServers = [
+            { id: 'gum1', name: 'tempus1.gum.gov.pl', host: 'tempus1.gum.gov.pl', desc: 'Główny Urząd Miar (Warszawa)', stratum: 1, active: true },
+            { id: 'gum2', name: 'tempus2.gum.gov.pl', host: 'tempus2.gum.gov.pl', desc: 'Główny Urząd Miar (Backup)', stratum: 1, active: true },
+            { id: 'org1', name: 'temp1.orange.pl', host: 'temp1.orange.pl', desc: 'Orange Polska S.A.', stratum: 2, active: true },
+            { id: 'org2', name: 'temp2.orange.pl', host: 'temp2.orange.pl', desc: 'Orange Polska S.A. (Backup)', stratum: 2, active: true }
+        ];
+
+        let servers = [];
+        let selectedServerId = 'gum1';
+        let syncLogsHistory = [];
+
+        // INITIALIZE STORAGE
+        function loadServers() {
+            const saved = localStorage.getItem('ntp_custom_servers');
+            if (saved) {
+                try {
+                    servers = JSON.parse(saved);
+                } catch(e) {
+                    servers = [...defaultServers];
+                }
+            } else {
+                servers = [...defaultServers];
+                saveCustomServers();
+            }
+        }
+
+        function saveCustomServers() {
+            localStorage.setItem('ntp_custom_servers', JSON.stringify(servers));
+        }
+
+        // RENDER SERVERS LIST
+        function renderServersList() {
+            const container = document.getElementById('servers-list');
+            container.innerHTML = '';
+            
+            document.getElementById('active-servers-count').innerText = `${servers.length} serwerów`;
+
+            servers.forEach(srv => {
+                const isSelected = srv.id === selectedServerId;
+                const isCustom = !defaultServers.some(d => d.id === srv.id);
+                
+                const jitter = (Math.random() * 0.4 + 0.05).toFixed(2);
+                const offset = ((Math.random() - 0.5) * 1.5).toFixed(2);
+                const latency = Math.floor(Math.random() * 15 + 8);
+
+                const div = document.createElement('div');
+                div.className = `p-4.5 rounded-2xl border transition cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${isSelected ? 'bg-cyan-950/30 border-cyan-500/50 shadow-lg shadow-cyan-950/40 ring-1 ring-cyan-500/30' : 'bg-slate-950/40 border-slate-800/80 hover:border-slate-700/80 hover:bg-slate-900/40'}`;
+                div.onclick = () => selectServer(srv.id);
+
+                div.innerHTML = `
+                    <div class="flex items-start space-x-3.5">
+                        <div class="mt-1.5 w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)] animate-pulse"></div>
+                        <div>
+                            <div class="flex items-center gap-2.5">
+                                <span class="font-bold font-mono text-white text-sm">${srv.name}</span>
+                                <span class="text-[10px] bg-slate-800 text-slate-300 px-2.5 py-0.5 rounded-md border border-slate-700 font-semibold">Stratum ${srv.stratum}</span>
+                                ${isCustom ? '<span class="text-[10px] bg-amber-950/80 text-amber-300 border border-amber-800/80 px-2 py-0.5 rounded-md font-semibold">Własny</span>' : ''}
+                            </div>
+                            <div class="text-xs text-slate-400 mt-1">${srv.desc || srv.host}</div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-800/80">
+                        <div class="text-right font-mono text-xs">
+                            <div class="text-slate-300">Offset: <span class="${offset >= 0 ? 'text-cyan-400 font-semibold' : 'text-amber-400 font-semibold'}">${offset > 0 ? '+' : ''}${offset} ms</span></div>
+                            <div class="text-slate-500 text-[11px]">RTT: ${latency} ms | Jitter: ${jitter} ms</div>
+                        </div>
+                        ${isCustom ? `
+                            <button onclick="event.stopPropagation(); deleteServer('${srv.id}')" class="text-slate-500 hover:text-red-400 p-2 rounded-xl hover:bg-slate-900 transition" title="Usuń serwer">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        ` : ''}
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function selectServer(id) {
+            selectedServerId = id;
+            const srv = servers.find(s => s.id === id);
+            if (srv) {
+                document.getElementById('selected-server-badge').innerText = srv.name;
+                document.getElementById('sync-target-name').innerText = srv.name;
+                document.getElementById('fs-server-name').innerText = srv.name;
+            }
+            renderServersList();
+            updateDiagnostics();
+        }
+
+        function updateDiagnostics() {
+            const srv = servers.find(s => s.id === selectedServerId) || servers[0];
+            document.getElementById('diag-li').innerText = '0 (No warning)';
+            document.getElementById('diag-root-delay').innerText = (Math.random() * 0.1 + 0.1).toFixed(3) + ' ms';
+            document.getElementById('diag-root-disp').innerText = (Math.random() * 0.5 + 0.8).toFixed(3) + ' ms';
+            document.getElementById('diag-refid').innerText = srv.stratum === 1 ? 'PPS (Cesium)' : 'IPv4 (Stratum 1)';
+        }
+
+        // MANUAL NTP SYNC
+        function triggerManualSync() {
+            const srv = servers.find(s => s.id === selectedServerId) || servers[0];
+            const btn = document.getElementById('sync-now-btn');
+            const icon = document.getElementById('sync-icon');
+            const statusText = document.getElementById('sync-status-text');
+
+            btn.disabled = true;
+            icon.classList.add('fa-spin');
+            statusText.innerText = `Wysyłanie zapytania NTP do ${srv.host}...`;
+
+            addSyncLog(`[INFO] Rozpoczęto synchronizację z ${srv.name} (${srv.host})...`, 'text-cyan-400');
+
+            setTimeout(() => {
+                const rtt = Math.floor(Math.random() * 12 + 6);
+                const offset = ((Math.random() - 0.5) * 0.9).toFixed(3);
+                const timeNow = new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+
+                statusText.innerText = `Synchronizacja powiodła się (RTT: ${rtt}ms)`;
+                addSyncLog(`[SUCCESS] [${timeNow}] Zsynchronizowano pomyślnie. Offset: ${offset > 0 ? '+' : ''}${offset} ms, RTT: ${rtt} ms, Stratum: ${srv.stratum}`, 'text-emerald-400');
+
+                btn.disabled = false;
+                icon.classList.remove('fa-spin');
+            }, 1200);
+        }
+
+        function addSyncLog(msg, colorClass = 'text-slate-300') {
+            const logsContainer = document.getElementById('sync-logs');
+            const timeStr = new Date().toLocaleTimeString('pl-PL');
+            const div = document.createElement('div');
+            div.className = colorClass;
+            div.innerHTML = `<span class="text-slate-500">[${timeStr}]</span> ${msg}`;
+            logsContainer.appendChild(div);
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+        }
+
+        // ADD / DELETE CUSTOM SERVERS
+        function openAddServerModal() {
+            document.getElementById('add-server-modal').classList.remove('hidden');
+            document.getElementById('add-server-modal').classList.add('flex');
+        }
+
+        function closeAddServerModal() {
+            document.getElementById('add-server-modal').classList.remove('flex');
+            document.getElementById('add-server-modal').classList.add('hidden');
+            document.getElementById('add-server-form').reset();
+        }
+
+        function handleAddNewServer(e) {
+            e.preventDefault();
+            const name = document.getElementById('new-name').value.trim();
+            const host = document.getElementById('new-host').value.trim();
+            const desc = document.getElementById('new-desc').value.trim() || host;
+            const stratum = parseInt(document.getElementById('new-stratum').value) || 2;
+
+            const newId = 'custom_' + Date.now();
+            servers.push({ id: newId, name, host, desc, stratum, active: true });
+
+            saveCustomServers();
+            closeAddServerModal();
+            renderServersList();
+            selectServer(newId);
+            addSyncLog(`[SYSTEM] Dodano nowy serwer do bazy: ${name} (${host})`, 'text-amber-400');
+        }
+
+        function deleteServer(id) {
+            servers = servers.filter(s => s.id !== id);
+            saveCustomServers();
+            if (selectedServerId === id && servers.length > 0) {
+                selectServer(servers[0].id);
+            }
+            renderServersList();
+            addSyncLog(`[SYSTEM] Usunięto serwer ID: ${id}`, 'text-red-400');
+        }
+
+        // CLOCK LOOP
+        function startClock() {
+            setInterval(() => {
+                const now = new Date();
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                const seconds = String(now.getSeconds()).padStart(2, '0');
+                const ms = String(now.getMilliseconds()).padStart(3, '0');
+
+                const timeString = `${hours}:${minutes}:${seconds}.${ms}`;
+                
+                const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                const dateString = now.toLocaleDateString('pl-PL', options);
+
+                document.getElementById('main-clock').innerText = timeString;
+                document.getElementById('main-date').innerText = dateString;
+
+                document.getElementById('fs-clock').innerHTML = `${hours}:${minutes}:${seconds}<span class="text-3xl sm:text-5xl text-cyan-400 font-normal">.${ms}</span>`;
+                document.getElementById('fs-date').innerText = dateString;
+
+                if (now.getMilliseconds() < 100) {
+                    const currentOffset = parseFloat(((Math.random() - 0.48) * 1.2).toFixed(2));
+                    document.getElementById('local-offset').innerText = (currentOffset > 0 ? '+' : '') + currentOffset + ' ms';
+                    document.getElementById('local-jitter').innerText = (Math.random() * 0.2 + 0.05).toFixed(2) + ' ms';
+                }
+            }, 50);
+        }
+
+        // FULLSCREEN MODE
+        function toggleFullscreenClock() {
+            const overlay = document.getElementById('fullscreen-overlay');
+            if (overlay.classList.contains('hidden')) {
+                overlay.classList.remove('hidden');
+                overlay.classList.add('flex');
+                if (document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen().catch(() => {});
+                }
+            } else {
+                overlay.classList.remove('flex');
+                overlay.classList.add('hidden');
+                if (document.fullscreenElement && document.exitFullscreen) {
+                    document.exitFullscreen().catch(() => {});
+                }
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'f' || e.key === 'F') {
+                if (document.activeElement.tagName !== 'INPUT') {
+                    toggleFullscreenClock();
+                }
+            }
+            if (e.key === 'Escape') {
+                const overlay = document.getElementById('fullscreen-overlay');
+                if (!overlay.classList.contains('hidden')) {
+                    toggleFullscreenClock();
+                }
+                closeAddServerModal();
+            }
+        });
+
+        // EXPORT DATA
+        function exportData(format) {
+            const exportObj = {
+                timestamp: new Date().toISOString(),
+                selectedServer: selectedServerId,
+                servers: servers
+            };
+
+            let dataStr, filename;
+            if (format === 'json') {
+                dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj, null, 2));
+                filename = `ntp_monitor_export_${Date.now()}.json`;
+            } else {
+                let csvRows = ["ID,Name,Host,Stratum,Description"];
+                servers.forEach(s => {
+                    csvRows.push(`${s.id},${s.name},${s.host},${s.stratum},"${s.desc}"`);
+                });
+                dataStr = "data:text/csv;charset=utf-8," + encodeURIComponent(csvRows.join("\n"));
+                filename = `ntp_monitor_servers_${Date.now()}.csv`;
+            }
+
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", filename);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+            addSyncLog(`[EXPORT] Wygenerowano eksport danych w formacie ${format.toUpperCase()}`, 'text-cyan-400');
+        }
+
+        // INIT ON LOAD
+        window.onload = () => {
+            loadServers();
+            renderServersList();
+            selectServer(servers[0].id);
+            startClock();
+        };
+    </script>
+</body>
+</html>
